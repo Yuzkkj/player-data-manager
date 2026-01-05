@@ -1,5 +1,4 @@
 PlayerDataManager handles data saving and replication.
-
 # Basic example
 ## Server-side
 ```luau
