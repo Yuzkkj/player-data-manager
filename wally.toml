@@ -1,0 +1,17 @@
+[package]
+name = "yuzkkj/player-data-manager"
+version = "0.1.8"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+description = "ProfileStore and Replica wrapper for player data management"
+homepage = "https://create.roblox.com/store/asset/123892997716567/PlayerDataManager"
+repository = ""
+license = "MIT"
+authors = ["Yuz"]
+exclude = ["**"]
+include = [
+    "default.project.json",
+    "src",
+    "src/**",
+    "wally.toml",
+]
