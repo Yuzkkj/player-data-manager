@@ -41,13 +41,13 @@ local function removeData(self: PlayerDataManager, player: Player): ()
 	player:Kick("Profile session ended. Please rejoin")
 end
 
-local function getProfile(self: PlayerDataManager, player: Player): ProfileStore.Profile<any>
-	local profile = self._cache[player].Profile
-	if not profile then
-		error(`No profile founded for player: {player.Name}`)
+local function getCacheData(self: PlayerDataManager, player: Player): CacheData
+	local cacheData = self._cache[player]
+	if not cacheData then
+		error(`No cache data founded for player {player.Name}`)
 	end
 
-	return profile
+	return cacheData
 end
 
 local function start(self: PlayerDataManager): ()
@@ -106,8 +106,7 @@ local function start(self: PlayerDataManager): ()
 
 	game:BindToClose(function()
 		for _, player in pairs(Players:GetPlayers()) do
-			local profile = getProfile(self, player)
-			profile:EndSession()
+			getCacheData(self, player).Profile:EndSession()
 		end
 	end)
 end
@@ -126,7 +125,7 @@ function PlayerDataManager.SetDataStoreKey(self: PlayerDataManager, key: string)
 end
 -- Returns the value from a player's profile data at the given path.
 function PlayerDataManager.Get(self: PlayerDataManager, player: Player, path: { string }): any
-	local pointer = getProfile(self, player).Data
+	local pointer = getCacheData(self, player).Profile.Data
 	for _, key in ipairs(path) do
 		pointer = pointer[key]
 	end
@@ -135,6 +134,7 @@ function PlayerDataManager.Get(self: PlayerDataManager, player: Player, path: { 
 end
 -- Sets the value in a player's profile data at the given path.
 function PlayerDataManager.Set(self: PlayerDataManager, player: Player, path: { string }, value: any): ()
+	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
 	local oldValue = self:Get(player, path)
@@ -142,17 +142,15 @@ function PlayerDataManager.Set(self: PlayerDataManager, player: Player, path: { 
 		error(`No value found in path "{concatedPath}"`)
 	end
 
-	local pointer = getProfile(self, player).Data
+	local pointer = playerCacheData.Profile.Data
 	for i = 1, #path - 1 do
 		pointer = pointer[path[i]]
 	end
 
-	local playerReplica = self._cache[player].Replica
-
 	pointer[path[#path]] = value
-	playerReplica:Set(path, value)
+	playerCacheData.Replica:Set(path, value)
 
-	local valueChangedSignal = self._cache[player].ValueChangedSignals[concatedPath]
+	local valueChangedSignal = playerCacheData.ValueChangedSignals[concatedPath]
 	if valueChangedSignal then
 		valueChangedSignal:Fire(value, oldValue)
 	end
@@ -163,15 +161,16 @@ function PlayerDataManager.GetValueChangedSignal(
 	player: Player,
 	path: { string }
 ): Signal.Signal<any, any>
+	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
-	local valueChangedSignal = self._cache[player].ValueChangedSignals[concatedPath]
+	local valueChangedSignal = playerCacheData.ValueChangedSignals[concatedPath]
 	if valueChangedSignal then
 		return valueChangedSignal
 	else
 		valueChangedSignal = Signal.new()
 
-		self._cache[player].ValueChangedSignals[concatedPath] = valueChangedSignal
+		playerCacheData.ValueChangedSignals[concatedPath] = valueChangedSignal
 
 		return valueChangedSignal
 	end
@@ -184,12 +183,11 @@ function PlayerDataManager.Insert(
 	value: any,
 	index: number?
 ): ()
-	local pointer = getProfile(self, player).Data
+	local playerCacheData = getCacheData(self, player)
+	local pointer = playerCacheData.Profile.Data
 	for _, key in ipairs(path) do
 		pointer = pointer[key]
 	end
-
-	local playerReplica = self._cache[player].Replica
 
 	if index then
 		table.insert(pointer, index, value)
@@ -197,10 +195,10 @@ function PlayerDataManager.Insert(
 		table.insert(pointer, value)
 	end
 
-	playerReplica:TableInsert(path, value, index or nil)
+	playerCacheData.Replica:TableInsert(path, value, index or nil)
 
 	local concatedPath = table.concat(path, "/")
-	local valueInsertedSignal = self._cache[player].ValueInsertedSignals[concatedPath]
+	local valueInsertedSignal = playerCacheData.ValueInsertedSignals[concatedPath]
 	if valueInsertedSignal then
 		valueInsertedSignal:Fire(value, index or nil)
 	end
@@ -211,22 +209,24 @@ function PlayerDataManager.GetValueInsertedSignal(
 	player: Player,
 	path: { string }
 ): Signal.Signal<any, any?>
+	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
-	local valueInsertedSignal = self._cache[player].ValueInsertedSignals[concatedPath]
+	local valueInsertedSignal = playerCacheData.ValueInsertedSignals[concatedPath]
 	if valueInsertedSignal then
 		return valueInsertedSignal
 	else
 		valueInsertedSignal = Signal.new()
 
-		self._cache[player].ValueInsertedSignals[concatedPath] = valueInsertedSignal
+		playerCacheData.ValueInsertedSignals[concatedPath] = valueInsertedSignal
 
 		return valueInsertedSignal
 	end
 end
 -- Removes an element from a table at the given path by index.
 function PlayerDataManager.Remove(self: PlayerDataManager, player: Player, path: { string }, index: number): ()
-	local pointer = getProfile(self, player).Data
+	local playerCacheData = getCacheData(self, player)
+	local pointer = playerCacheData.Profile.Data
 	for _, key in ipairs(path) do
 		pointer = pointer[key]
 	end
@@ -238,11 +238,9 @@ function PlayerDataManager.Remove(self: PlayerDataManager, player: Player, path:
 		error(`No index "{index}" at path "{concatedPath}"`)
 	end
 
-	local playerReplica = self._cache[player].Replica
+	playerCacheData.Replica:TableRemove(path, index)
 
-	playerReplica:TableRemove(path, index)
-
-	local valueRemovedSignal = self._cache[player].ValueRemovedSignals[concatedPath]
+	local valueRemovedSignal = playerCacheData.ValueRemovedSignals[concatedPath]
 	if valueRemovedSignal then
 		valueRemovedSignal:Fire(valueRemoved, index)
 	end
@@ -253,15 +251,16 @@ function PlayerDataManager.GetValueRemovedSignal(
 	player: Player,
 	path: { string }
 ): Signal.Signal<any, any>
+	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
-	local valueRemovedSignal = self._cache[player].ValueRemovedSignals[concatedPath]
+	local valueRemovedSignal = playerCacheData.ValueRemovedSignals[concatedPath]
 	if valueRemovedSignal then
 		return valueRemovedSignal
 	else
 		valueRemovedSignal = Signal.new()
 
-		self._cache[player].ValueRemovedSignals[concatedPath] = valueRemovedSignal
+		playerCacheData.ValueRemovedSignals[concatedPath] = valueRemovedSignal
 
 		return valueRemovedSignal
 	end
