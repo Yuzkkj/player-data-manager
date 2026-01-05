@@ -5,23 +5,27 @@ local Signal = require(script.Parent.Shared.Signal)
 
 local localPlayer = Players.LocalPlayer
 
+type CacheData = {
+	Replica: typeof(Replica.New()),
+	ValueChangedSignals: { [string]: Signal.Signal<any, any>? },
+	ValueInsertedSignals: { [string]: Signal.Signal<any, any?>? },
+	ValueRemovedSignals: { [string]: Signal.Signal<any, any>? },
+}
+
 local PlayerDataManager = {
 	PlayerAdded = Signal.new() :: Signal.Signal<Player>,
-	_replicas = {} :: { [Player]: typeof(Replica.New()) },
-	_valueChangedSignals = {} :: { [Player]: { [string]: Signal.Signal<any, any> } },
-	_valueInsertedSignals = {} :: { [Player]: { [string]: Signal.Signal<any, any?> } },
-	_valueRemovedSignals = {} :: { [Player]: { [string]: Signal.Signal<any, any> } },
+	_cache = {} :: { [Player]: CacheData },
 }
 
 local function getReplica(self: PlayerDataManager, player: Player): typeof(Replica.New())
-	local replica = self._replicas[player]
+	local replica = self._cache[player].Replica
 
 	if not replica and player ~= localPlayer then
 		error(`No replica founded for player: {player.Name}`)
 	else
 		repeat
 			task.wait(1)
-			replica = self._replicas[player]
+			replica = self._cache[player].Replica
 		until replica
 
 		return replica
@@ -31,17 +35,14 @@ end
 local function start(self: PlayerDataManager): ()
 	Replica.OnNew("PlayerData", function(replica)
 		local player = replica.Tags.Player
-		self._replicas[player] = replica
+		local playerCacheData: CacheData = {
+			Replica = replica,
+			ValueChangedSignals = {},
+			ValueInsertedSignals = {},
+			ValueRemovedSignals = {},
+		}
 
-		local valueChangedSignals = self._valueChangedSignals[player]
-		if valueChangedSignals then
-			for concatedPath, valueChangedSignal in pairs(valueChangedSignals) do
-				local path = string.split(concatedPath, "/")
-				replica:OnSet(path, function(newValue, oldValue)
-					valueChangedSignal:Fire(newValue, oldValue)
-				end)
-			end
-		end
+		self._cache[player] = playerCacheData
 
 		if player ~= localPlayer then
 			self.PlayerAdded:Fire(player)
@@ -51,14 +52,12 @@ local function start(self: PlayerDataManager): ()
 			local concatedPath = table.concat(path, "/")
 
 			if action == "TableInsert" then
-				local valueInsertedSignal = self._valueInsertedSignals[player]
-					and self._valueInsertedSignals[player][concatedPath]
+				local valueInsertedSignal = self._cache[player].ValueInsertedSignals[concatedPath]
 				if valueInsertedSignal then
 					valueInsertedSignal:Fire(value, index or nil)
 				end
 			elseif action == "TableRemove" then
-				local valueRemovedSignal = self._valueRemovedSignals[player]
-					and self._valueRemovedSignals[player][concatedPath]
+				local valueRemovedSignal = self._cache[player].ValueRemovedSignals[concatedPath]
 				if valueRemovedSignal then
 					valueRemovedSignal:Fire(value, index)
 				end
@@ -67,10 +66,7 @@ local function start(self: PlayerDataManager): ()
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
-		self._replicas[player] = nil
-		self._valueChangedSignals[player] = nil
-		self._valueInsertedSignals[player] = nil
-		self._valueRemovedSignals[player] = nil
+		self._cache[player] = nil
 	end)
 
 	Replica.RequestData()
@@ -92,70 +88,46 @@ function PlayerDataManager.GetValueChangedSignal(
 	player: Player,
 	path: { string }
 ): Signal.Signal<any, any>
-	local targetPlayer = player or localPlayer
 	local concatedPath = table.concat(path, "/")
 
-	local playerSignals = self._valueChangedSignals[targetPlayer]
-	if not playerSignals then
-		playerSignals = {}
-		self._valueChangedSignals[targetPlayer] = playerSignals
-	end
-
-	local valueChangedSignal = playerSignals[concatedPath]
+	local valueChangedSignal = self._cache[player].ValueChangedSignals[concatedPath]
 	if valueChangedSignal then
 		return valueChangedSignal
 	else
 		valueChangedSignal = Signal.new()
-		playerSignals[concatedPath] = valueChangedSignal
+		self._cache[player].ValueChangedSignals[concatedPath] = valueChangedSignal
 
-		local replica = self._replicas[targetPlayer]
-		if replica then
-			replica:OnSet(path, function(newValue, oldValue)
-				valueChangedSignal:Fire(newValue, oldValue)
-			end)
-		end
+		getReplica(self, player):OnSet(path, function(newValue, oldValue)
+			valueChangedSignal:Fire(newValue, oldValue)
+		end)
 
 		return valueChangedSignal
 	end
 end
 -- Returns a Signal that fires when a value is inserted into the table at the given path.
 function PlayerDataManager.GetValueInsertedSignal(self: PlayerDataManager, player: Player, path: { string })
-	local targetPlayer = player or localPlayer
 	local concatedPath = table.concat(path, "/")
 
-	local playerSignals = self._valueInsertedSignals[targetPlayer]
-	if not playerSignals then
-		playerSignals = {}
-		self._valueInsertedSignals[targetPlayer] = playerSignals
-	end
-
-	local valueInsertedSignal = playerSignals[concatedPath]
+	local valueInsertedSignal = self._cache[player].ValueInsertedSignals[concatedPath]
 	if valueInsertedSignal then
 		return valueInsertedSignal
 	else
 		valueInsertedSignal = Signal.new()
-		playerSignals[concatedPath] = valueInsertedSignal
+		self._cache[player].ValueInsertedSignals[concatedPath] = valueInsertedSignal
 
 		return valueInsertedSignal
 	end
 end
 -- Returns a Signal that fires when a value is removed from the table at the given path.
 function PlayerDataManager.GetValueRemovedSignal(self: PlayerDataManager, player: Player, path: { string })
-	local targetPlayer = player or localPlayer
 	local concatedPath = table.concat(path, "/")
 
-	local playerSignals = self._valueRemovedSignals[targetPlayer]
-	if not playerSignals then
-		playerSignals = {}
-		self._valueRemovedSignals[targetPlayer] = playerSignals
-	end
-
-	local valueRemovedSignal = playerSignals[concatedPath]
+	local valueRemovedSignal = self._cache[player].ValueRemovedSignals[concatedPath]
 	if valueRemovedSignal then
 		return valueRemovedSignal
 	else
 		valueRemovedSignal = Signal.new()
-		playerSignals[concatedPath] = valueRemovedSignal
+		self._cache[player].ValueRemovedSignals[concatedPath] = valueRemovedSignal
 
 		return valueRemovedSignal
 	end

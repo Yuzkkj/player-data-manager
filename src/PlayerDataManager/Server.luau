@@ -10,35 +10,39 @@ local TOKEN = Replica.Token("PlayerData")
 
 local playerStore: typeof(ProfileStore.New(...))
 
+type CacheData = {
+	Profile: ProfileStore.Profile<any>,
+	Replica: typeof(Replica.New()),
+	ValueChangedSignals: { [string]: Signal.Signal<any, any>? },
+	ValueInsertedSignals: { [string]: Signal.Signal<any, any?>? },
+	ValueRemovedSignals: { [string]: Signal.Signal<any, any>? },
+}
+
 local PlayerDataManager = {
 	PlayerAdded = Signal.new() :: Signal.Signal<Player>,
 	_dataStoreKey = "PlayerStore",
 	_template = nil,
-	_profiles = {} :: { [Player]: ProfileStore.Profile<any> },
-	_replicas = {} :: { [Player]: typeof(Replica.New()) },
-	_valueChangedSignals = {} :: { [Player]: { [string]: Signal.Signal<any, any> } },
-	_valueInsertedSignals = {} :: { [Player]: { [string]: Signal.Signal<any, any?> } },
-	_valueRemovedSignals = {} :: { [Player]: { [string]: Signal.Signal<any, any> } },
+	_cache = {} :: { [Player]: CacheData },
 }
 
 local function removeData(self: PlayerDataManager, player: Player): ()
-	self._profiles[player] = nil
-
-	local playerReplica = self._replicas[player]
-	if playerReplica then
-		playerReplica:Destroy()
-		self._replicas[player] = nil
+	local playerCacheData = self._cache[player]
+	if not playerCacheData then
+		return
 	end
 
-	self._valueChangedSignals[player] = nil
-	self._valueInsertedSignals[player] = nil
-	self._valueRemovedSignals[player] = nil
+	local playerReplica = playerCacheData.Replica
+	if playerReplica then
+		playerReplica:Destroy()
+	end
+
+	self._cache[player] = nil
 
 	player:Kick("Profile session ended. Please rejoin")
 end
 
 local function getProfile(self: PlayerDataManager, player: Player): ProfileStore.Profile<any>
-	local profile = self._profiles[player]
+	local profile = self._cache[player].Profile
 	if not profile then
 		error(`No profile founded for player: {player.Name}`)
 	end
@@ -50,10 +54,6 @@ local function start(self: PlayerDataManager): ()
 	playerStore = ProfileStore.New(self._dataStoreKey, self._template)
 
 	local function onPlayerAdded(player: Player): ()
-		self._valueChangedSignals[player] = {}
-		self._valueInsertedSignals[player] = {}
-		self._valueRemovedSignals[player] = {}
-
 		local playerProfile = playerStore:StartSessionAsync(tostring(player.UserId), {
 			Cancel = function()
 				return player.Parent ~= Players
@@ -75,8 +75,6 @@ local function start(self: PlayerDataManager): ()
 			playerProfile:EndSession()
 		end
 
-		self._profiles[player] = playerProfile
-
 		local playerReplica = Replica.New({
 			Token = TOKEN,
 			Data = playerProfile.Data,
@@ -85,7 +83,13 @@ local function start(self: PlayerDataManager): ()
 
 		playerReplica:Replicate()
 
-		self._replicas[player] = playerReplica
+		self._cache[player] = {
+			Profile = playerProfile,
+			Replica = playerReplica,
+			ValueChangedSignals = {},
+			ValueInsertedSignals = {},
+			ValueRemovedSignals = {},
+		}
 
 		self.PlayerAdded:Fire(player)
 	end
@@ -96,17 +100,23 @@ local function start(self: PlayerDataManager): ()
 
 	Players.PlayerAdded:Connect(onPlayerAdded)
 
-	if not RunService:IsStudio() then
-		game:BindToClose(function()
-			for _, player in pairs(Players:GetPlayers()) do
-				local profile = getProfile(self, player)
-				profile:EndSession()
-			end
-		end)
+	if RunService:IsStudio() then
+		return
 	end
+
+	game:BindToClose(function()
+		for _, player in pairs(Players:GetPlayers()) do
+			local profile = getProfile(self, player)
+			profile:EndSession()
+		end
+	end)
 end
 -- Sets the default data structure used when creating a profile.
 function PlayerDataManager.SetTemplate(self: PlayerDataManager, template: { [any]: any }): ()
+	if type(template) ~= "table" then
+		error("Template must be a table")
+	end
+
 	self._template = template
 	start(self)
 end
@@ -137,12 +147,12 @@ function PlayerDataManager.Set(self: PlayerDataManager, player: Player, path: { 
 		pointer = pointer[path[i]]
 	end
 
-	local playerReplica = self._replicas[player]
+	local playerReplica = self._cache[player].Replica
 
 	pointer[path[#path]] = value
 	playerReplica:Set(path, value)
 
-	local valueChangedSignal = self._valueChangedSignals[player][concatedPath]
+	local valueChangedSignal = self._cache[player].ValueChangedSignals[concatedPath]
 	if valueChangedSignal then
 		valueChangedSignal:Fire(value, oldValue)
 	end
@@ -155,18 +165,18 @@ function PlayerDataManager.GetValueChangedSignal(
 ): Signal.Signal<any, any>
 	local concatedPath = table.concat(path, "/")
 
-	local valueChangedSignal = self._valueChangedSignals[player][concatedPath]
+	local valueChangedSignal = self._cache[player].ValueChangedSignals[concatedPath]
 	if valueChangedSignal then
 		return valueChangedSignal
 	else
 		valueChangedSignal = Signal.new()
 
-		self._valueChangedSignals[player][concatedPath] = valueChangedSignal
+		self._cache[player].ValueChangedSignals[concatedPath] = valueChangedSignal
 
 		return valueChangedSignal
 	end
 end
--- Inserts the given value into a player's profile table at the given path, at the index, if provided.
+-- Inserts the given value into a player's profile table at the given path, and index, if provided.
 function PlayerDataManager.Insert(
 	self: PlayerDataManager,
 	player: Player,
@@ -179,9 +189,9 @@ function PlayerDataManager.Insert(
 		pointer = pointer[key]
 	end
 
-	local playerReplica = self._replicas[player]
+	local playerReplica = self._cache[player].Replica
 
-	if index ~= nil then
+	if index then
 		table.insert(pointer, index, value)
 	else
 		table.insert(pointer, value)
@@ -190,7 +200,7 @@ function PlayerDataManager.Insert(
 	playerReplica:TableInsert(path, value, index or nil)
 
 	local concatedPath = table.concat(path, "/")
-	local valueInsertedSignal = self._valueInsertedSignals[player][concatedPath]
+	local valueInsertedSignal = self._cache[player].ValueInsertedSignals[concatedPath]
 	if valueInsertedSignal then
 		valueInsertedSignal:Fire(value, index or nil)
 	end
@@ -203,13 +213,13 @@ function PlayerDataManager.GetValueInsertedSignal(
 ): Signal.Signal<any, any?>
 	local concatedPath = table.concat(path, "/")
 
-	local valueInsertedSignal = self._valueInsertedSignals[player][concatedPath]
+	local valueInsertedSignal = self._cache[player].ValueInsertedSignals[concatedPath]
 	if valueInsertedSignal then
 		return valueInsertedSignal
 	else
 		valueInsertedSignal = Signal.new()
 
-		self._valueInsertedSignals[player][concatedPath] = valueInsertedSignal
+		self._cache[player].ValueInsertedSignals[concatedPath] = valueInsertedSignal
 
 		return valueInsertedSignal
 	end
@@ -228,11 +238,11 @@ function PlayerDataManager.Remove(self: PlayerDataManager, player: Player, path:
 		error(`No index "{index}" at path "{concatedPath}"`)
 	end
 
-	local playerReplica = self._replicas[player]
+	local playerReplica = self._cache[player].Replica
 
 	playerReplica:TableRemove(path, index)
 
-	local valueRemovedSignal = self._valueRemovedSignals[player][concatedPath]
+	local valueRemovedSignal = self._cache[player].ValueRemovedSignals[concatedPath]
 	if valueRemovedSignal then
 		valueRemovedSignal:Fire(valueRemoved, index)
 	end
@@ -245,13 +255,13 @@ function PlayerDataManager.GetValueRemovedSignal(
 ): Signal.Signal<any, any>
 	local concatedPath = table.concat(path, "/")
 
-	local valueRemovedSignal = self._valueRemovedSignals[player][concatedPath]
+	local valueRemovedSignal = self._cache[player].ValueRemovedSignals[concatedPath]
 	if valueRemovedSignal then
 		return valueRemovedSignal
 	else
 		valueRemovedSignal = Signal.new()
 
-		self._valueRemovedSignals[player][concatedPath] = valueRemovedSignal
+		self._cache[player].ValueRemovedSignals[concatedPath] = valueRemovedSignal
 
 		return valueRemovedSignal
 	end

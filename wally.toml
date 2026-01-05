@@ -1,6 +1,6 @@
 [package]
 name = "yuzkkj/player-data-manager"
-version = "0.2.9"
+version = "0.2.10"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 description = "ProfileStore and Replica wrapper for player data management"
