@@ -16,8 +16,8 @@ type CacheData = {
 	Profile: ProfileStore.Profile<any>,
 	Replica: typeof(Replica.New()),
 	ValueChangedSignals: { [string]: Signal.Signal<any, any>? },
-	ValueInsertedSignals: { [string]: Signal.Signal<any, any?>? },
-	ValueRemovedSignals: { [string]: Signal.Signal<any, any>? },
+	ValueInsertedSignals: { [string]: Signal.Signal<any, number?>? },
+	ValueRemovedSignals: { [string]: Signal.Signal<any, number>? },
 }
 
 local PlayerDataManager = {
@@ -151,7 +151,7 @@ function PlayerDataManager.SetDataStoreKey(self: PlayerDataManager, key: string)
 	self._dataStoreKey = key
 end
 -- Returns the value from a player's profile data at the given path.
-function PlayerDataManager.Get(self: PlayerDataManager, player: Player, path: { string }): any
+function PlayerDataManager.Get(self: PlayerDataManager, player: Player, path: { string | number }): any
 	local pointer = getCacheData(self, player).Profile.Data
 	for _, key in ipairs(path) do
 		pointer = pointer[key]
@@ -160,7 +160,7 @@ function PlayerDataManager.Get(self: PlayerDataManager, player: Player, path: { 
 	return pointer
 end
 -- Sets the value in a player's profile data at the given path.
-function PlayerDataManager.Set(self: PlayerDataManager, player: Player, path: { string }, value: any): ()
+function PlayerDataManager.Set(self: PlayerDataManager, player: Player, path: { string | number }, value: any): ()
 	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
@@ -186,7 +186,7 @@ end
 function PlayerDataManager.GetValueChangedSignal(
 	self: PlayerDataManager,
 	player: Player,
-	path: { string }
+	path: { string | number }
 ): Signal.Signal<any, any>
 	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
@@ -206,7 +206,7 @@ end
 function PlayerDataManager.Insert(
 	self: PlayerDataManager,
 	player: Player,
-	path: { string },
+	path: { string | number },
 	value: any,
 	index: number?
 ): ()
@@ -234,8 +234,8 @@ end
 function PlayerDataManager.GetValueInsertedSignal(
 	self: PlayerDataManager,
 	player: Player,
-	path: { string }
-): Signal.Signal<any, any?>
+	path: { string | number }
+): Signal.Signal<any, number?>
 	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
@@ -251,7 +251,7 @@ function PlayerDataManager.GetValueInsertedSignal(
 	end
 end
 -- Removes an element from a table at the given path by index.
-function PlayerDataManager.Remove(self: PlayerDataManager, player: Player, path: { string }, index: number): ()
+function PlayerDataManager.Remove(self: PlayerDataManager, player: Player, path: { string | number }, index: number): ()
 	local playerCacheData = getCacheData(self, player)
 	local pointer = playerCacheData.Profile.Data
 	for _, key in ipairs(path) do
@@ -276,8 +276,8 @@ end
 function PlayerDataManager.GetValueRemovedSignal(
 	self: PlayerDataManager,
 	player: Player,
-	path: { string }
-): Signal.Signal<any, any>
+	path: { string | number }
+): Signal.Signal<any, number>
 	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
@@ -293,7 +293,7 @@ function PlayerDataManager.GetValueRemovedSignal(
 	end
 end
 -- Increment the value at the given path, by the given amount.
-function PlayerDataManager.Increment(self: PlayerDataManager, player: Player, path: { string }, increment: number): ()
+function PlayerDataManager.Increment(self: PlayerDataManager, player: Player, path: { string | number }, increment: number): ()
 	local oldValue = self:Get(player, path)
 	local newValue = oldValue + increment
 
