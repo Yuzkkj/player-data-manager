@@ -20,9 +20,13 @@ local PlayerDataManager = {
 local function getCacheData(self: PlayerDataManager, player: Player): CacheData
 	local playerCacheData = self._cache[player]
 
-	if not playerCacheData and player ~= localPlayer then
-		error(`No cache data founded for player: {player.Name}`)
+	if playerCacheData then
+		return playerCacheData
 	else
+		if player ~= localPlayer then
+			error(`No cache data founded for player: {player.Name}`)
+		end
+
 		repeat
 			task.wait(1)
 			playerCacheData = self._cache[player]
