@@ -38,7 +38,7 @@ local function getCacheData(self: PlayerDataManager, player: Player): CacheData
 		end)
 	end)
 
-	local success, result = dataPromise:timeout(10):await()
+	local success, result = dataPromise:timeout(30):await()
 
 	if success then
 		return result
