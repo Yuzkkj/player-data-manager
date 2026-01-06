@@ -18,38 +18,32 @@ local PlayerDataManager = {
 }
 
 local function getCacheData(self: PlayerDataManager, player: Player): CacheData
-	local playerCacheData = self._cache[player]
-	if playerCacheData then
-		return playerCacheData
-	else
-		Promise.new(function(resolve, _, onCancel)
-			local connection: Signal.Connection
-			connection = dataLoaded:Connect(function(loadedPlayer)
-				if loadedPlayer == player then
-					connection:Disconnect()
-					resolve(self._cache[player])
-				end
-			end)
+	if self._cache[player] then
+		return self._cache[player]
+	end
 
-			onCancel(function()
-				if connection then
-					connection:Disconnect()
-				end
-			end)
+	local dataPromise = Promise.new(function(resolve, _, onCancel)
+		local connection
+		connection = dataLoaded:Connect(function(loadedPlayer)
+			if loadedPlayer == player then
+				connection:Disconnect()
+				resolve(self._cache[player])
+			end
 		end)
-			:timeout(10)
-			:andThen(function(cacheData)
-				playerCacheData = cacheData
-			end)
-			:catch(function(err)
-				if Promise.Error.isKind(err, Promise.Error.Kind.TimedOut) then
-					warn("Operation timed out")
-				else
-					warn("Operation encountered an error")
-				end
-			end)
 
-		return playerCacheData
+		onCancel(function()
+			if connection then
+				connection:Disconnect()
+			end
+		end)
+	end)
+
+	local success, result = dataPromise:timeout(10):await()
+
+	if success then
+		return result
+	else
+		error(`Failed to get {player.Name} cache data: {result}`)
 	end
 end
 
