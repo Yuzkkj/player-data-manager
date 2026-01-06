@@ -50,6 +50,9 @@ end
 local function start(self: PlayerDataManager): ()
 	local function setupReplica(replica)
 		local player = replica.Tags.Player
+		if not player then
+			return
+		end
 		self._cache[player] = {
 			Replica = replica,
 			ValueChangedSignals = {},
