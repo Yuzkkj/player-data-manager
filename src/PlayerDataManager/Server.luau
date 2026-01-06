@@ -84,6 +84,7 @@ local function start(self: PlayerDataManager): ()
 
 		if not playerProfile then
 			player:Kick("Profile load failed. Please rejoin")
+			return
 		end
 
 		playerProfile:AddUserId(player.UserId)
@@ -95,6 +96,7 @@ local function start(self: PlayerDataManager): ()
 
 		if player.Parent ~= Players then
 			playerProfile:EndSession()
+			return
 		end
 
 		local playerReplica = Replica.New({
@@ -121,6 +123,9 @@ local function start(self: PlayerDataManager): ()
 	end
 
 	Players.PlayerAdded:Connect(onPlayerAdded)
+	Players.PlayerRemoving:Connect(function(player)
+		getCacheData(self, player).Profile:EndSession()
+	end)
 
 	if RunService:IsStudio() then
 		return
