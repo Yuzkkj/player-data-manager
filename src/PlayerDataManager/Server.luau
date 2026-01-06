@@ -3,12 +3,14 @@ local Players = game:GetService("Players")
 
 local ProfileStore = require(script.Parent.Shared.ProfileStore)
 
+local Promise = require(script.Parent.Shared.Promise)
 local Replica = require(script.Parent.Shared.Replica)
 local Signal = require(script.Parent.Shared.Signal)
 
 local TOKEN = Replica.Token("PlayerData")
 
 local playerStore: typeof(ProfileStore.New(...))
+local dataLoaded = Signal.new() :: Signal.Signal<Player>
 
 type CacheData = {
 	Profile: ProfileStore.Profile<any>,
@@ -19,7 +21,6 @@ type CacheData = {
 }
 
 local PlayerDataManager = {
-	PlayerAdded = Signal.new() :: Signal.Signal<Player>,
 	_dataStoreKey = "PlayerStore",
 	_template = nil,
 	_cache = {} :: { [Player]: CacheData },
@@ -42,12 +43,39 @@ local function removeData(self: PlayerDataManager, player: Player): ()
 end
 
 local function getCacheData(self: PlayerDataManager, player: Player): CacheData
-	local cacheData = self._cache[player]
-	if not cacheData then
-		error(`No cache data founded for player {player.Name}`)
-	end
+	local playerCacheData = self._cache[player]
+	if playerCacheData then
+		return playerCacheData
+	else
+		Promise.new(function(resolve, _, onCancel)
+			local connection: Signal.Connection
+			connection = dataLoaded:Connect(function(loadedPlayer)
+				if loadedPlayer == player then
+					connection:Disconnect()
+					resolve(self._cache[player])
+				end
+			end)
 
-	return cacheData
+			onCancel(function()
+				if connection then
+					connection:Disconnect()
+				end
+			end)
+		end)
+			:timeout(10)
+			:andThen(function(cacheData)
+				playerCacheData = cacheData
+			end)
+			:catch(function(err)
+				if Promise.Error.isKind(err, Promise.Error.Kind.TimedOut) then
+					warn("Operation timed out")
+				else
+					warn("Operation encountered an error")
+				end
+			end)
+
+		return playerCacheData
+	end
 end
 
 local function start(self: PlayerDataManager): ()
@@ -91,7 +119,7 @@ local function start(self: PlayerDataManager): ()
 			ValueRemovedSignals = {},
 		}
 
-		self.PlayerAdded:Fire(player)
+		dataLoaded:Fire(player)
 	end
 
 	for _, player in pairs(Players:GetPlayers()) do
