@@ -90,6 +90,21 @@ local function start(self: PlayerDataManager): ()
 	Replica.OnNew("PlayerData", setupReplica)
 
 	Players.PlayerRemoving:Connect(function(player)
+		local playerCacheData = self._cache[player]
+		if not playerCacheData then
+			return
+		end
+
+		for _, signal in pairs(playerCacheData.ValueChangedSignals) do
+			signal:DisconnectAll()
+		end
+		for _, signal in pairs(playerCacheData.ValueInsertedSignals) do
+			signal:DisconnectAll()
+		end
+		for _, signal in pairs(playerCacheData.ValueRemovedSignals) do
+			signal:DisconnectAll()
+		end
+
 		self._cache[player] = nil
 	end)
 
@@ -130,7 +145,11 @@ function PlayerDataManager.GetValueChangedSignal(
 	end
 end
 -- Returns a Signal that fires when a value is inserted into the table at the given path.
-function PlayerDataManager.GetValueInsertedSignal(self: PlayerDataManager, player: Player, path: { string | number }): Signal.Signal<any, number?>
+function PlayerDataManager.GetValueInsertedSignal(
+	self: PlayerDataManager,
+	player: Player,
+	path: { string | number }
+): Signal.Signal<any, number?>
 	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
@@ -145,7 +164,11 @@ function PlayerDataManager.GetValueInsertedSignal(self: PlayerDataManager, playe
 	end
 end
 -- Returns a Signal that fires when a value is removed from the table at the given path.
-function PlayerDataManager.GetValueRemovedSignal(self: PlayerDataManager, player: Player, path: { string | number }): Signal.Signal<any, number>
+function PlayerDataManager.GetValueRemovedSignal(
+	self: PlayerDataManager,
+	player: Player,
+	path: { string | number }
+): Signal.Signal<any, number>
 	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 

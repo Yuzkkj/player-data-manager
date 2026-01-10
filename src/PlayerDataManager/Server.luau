@@ -37,6 +37,16 @@ local function removeData(self: PlayerDataManager, player: Player): ()
 		playerReplica:Destroy()
 	end
 
+	for _, signal in pairs(playerCacheData.ValueChangedSignals) do
+		signal:DisconnectAll()
+	end
+	for _, signal in pairs(playerCacheData.ValueInsertedSignals) do
+		signal:DisconnectAll()
+	end
+	for _, signal in pairs(playerCacheData.ValueRemovedSignals) do
+		signal:DisconnectAll()
+	end
+
 	self._cache[player] = nil
 
 	player:Kick("Profile session ended. Please rejoin")
@@ -293,7 +303,12 @@ function PlayerDataManager.GetValueRemovedSignal(
 	end
 end
 -- Increment the value at the given path, by the given amount.
-function PlayerDataManager.Increment(self: PlayerDataManager, player: Player, path: { string | number }, increment: number): ()
+function PlayerDataManager.Increment(
+	self: PlayerDataManager,
+	player: Player,
+	path: { string | number },
+	increment: number
+): ()
 	local oldValue = self:Get(player, path)
 	local newValue = oldValue + increment
 
