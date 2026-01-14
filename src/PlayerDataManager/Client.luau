@@ -5,14 +5,17 @@ local Replica = require(script.Parent.Shared.Replica)
 local Signal = require(script.Parent.Shared.Signal)
 local Janitor = require(script.Parent.Shared.Janitor)
 
+local Types = require(script.Parent.Shared.Types)
+local utils = require(script.Parent.Shared.Utils)
+
 local dataLoaded = Signal.new() :: Signal.Signal<Player>
 
 type CacheData = {
 	_janitor: Janitor.Janitor,
 	Replica: typeof(Replica.New()),
-	ValueChangedSignals: { [string]: Signal.Signal<any, any>? },
-	ValueInsertedSignals: { [string]: Signal.Signal<any, number?>? },
-	ValueRemovedSignals: { [string]: Signal.Signal<any, number>? },
+	ValueChangedSignals: Types.ValueChangedSignals,
+	ValueInsertedSignals: Types.ValueInsertedSignals,
+	ValueRemovedSignals: Types.ValueRemovedSignals,
 }
 
 local PlayerDataManager = {
@@ -71,18 +74,40 @@ local function start(self: PlayerDataManager): ()
 		dataLoaded:Fire(player)
 
 		replica:OnChange(function(action, path, value, index)
-			local concatedPath = table.concat(path, "/")
 			local playerCacheData = getCacheData(self, player)
+			if not playerCacheData then
+				return
+			end
 
-			if action == "TableInsert" then
-				local valueInsertedSignal = playerCacheData.ValueInsertedSignals[concatedPath]
-				if valueInsertedSignal then
-					valueInsertedSignal:Fire(value, index or nil)
+			if action == "Set" then
+				local signal: Types.ValueChangedSignal = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
+				if signal then
+					signal:Fire(value, index)
+				end
+			elseif action == "TableInsert" then
+				local signal: Types.ValueInsertedSignal =
+					utils.getSignalNode(playerCacheData.ValueInsertedSignals, path)
+				if signal then
+					signal:Fire(value, index or nil)
+				end
+
+				local signalTable = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
+				if signalTable then
+					if index then
+						table.insert(signalTable, index, false)
+					else
+						table.insert(signalTable, false)
+					end
 				end
 			elseif action == "TableRemove" then
-				local valueRemovedSignal = playerCacheData.ValueRemovedSignals[concatedPath]
-				if valueRemovedSignal then
-					valueRemovedSignal:Fire(value, index)
+				local signal: Types.ValueRemovedSignal = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
+				if signal then
+					signal:Fire(value, index)
+				end
+
+				local signalTable = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
+				if signalTable then
+					table.remove(signalTable, index)
 				end
 			end
 		end)
@@ -130,21 +155,19 @@ function PlayerDataManager.GetValueChangedSignal(
 	self: PlayerDataManager,
 	player: Player,
 	path: { string | number }
-): Signal.Signal<any, any>
+): Types.ValueChangedSignal
 	local playerCacheData = getCacheData(self, player)
-	local concatedPath = table.concat(path, "/")
 
-	local valueChangedSignal = playerCacheData.ValueChangedSignals[concatedPath]
+	local pointer, key = utils.CreateSignalNode(playerCacheData.ValueChangedSignals, path)
+
+	local valueChangedSignal = pointer[key]
 	if valueChangedSignal then
 		return valueChangedSignal
 	else
 		valueChangedSignal = Signal.new()
 		playerCacheData._janitor:Add(valueChangedSignal, "DisconnectAll")
-		playerCacheData.ValueChangedSignals[concatedPath] = valueChangedSignal
 
-		playerCacheData.Replica:OnSet(path, function(newValue, oldValue)
-			valueChangedSignal:Fire(newValue, oldValue)
-		end)
+		pointer[key] = valueChangedSignal
 
 		return valueChangedSignal
 	end
@@ -154,17 +177,19 @@ function PlayerDataManager.GetValueInsertedSignal(
 	self: PlayerDataManager,
 	player: Player,
 	path: { string | number }
-): Signal.Signal<any, number?>
+): Types.ValueInsertedSignal
 	local playerCacheData = getCacheData(self, player)
-	local concatedPath = table.concat(path, "/")
 
-	local valueInsertedSignal = playerCacheData.ValueInsertedSignals[concatedPath]
+	local pointer, key = utils.CreateSignalNode(playerCacheData.ValueInsertedSignals, path)
+
+	local valueInsertedSignal = pointer[key]
 	if valueInsertedSignal then
 		return valueInsertedSignal
 	else
 		valueInsertedSignal = Signal.new()
 		playerCacheData._janitor:Add(valueInsertedSignal, "DisconnectAll")
-		playerCacheData.ValueInsertedSignals[concatedPath] = valueInsertedSignal
+
+		pointer[key] = valueInsertedSignal
 
 		return valueInsertedSignal
 	end
@@ -174,17 +199,19 @@ function PlayerDataManager.GetValueRemovedSignal(
 	self: PlayerDataManager,
 	player: Player,
 	path: { string | number }
-): Signal.Signal<any, number>
+): Types.ValueRemovedSignal
 	local playerCacheData = getCacheData(self, player)
-	local concatedPath = table.concat(path, "/")
 
-	local valueRemovedSignal = playerCacheData.ValueRemovedSignals[concatedPath]
+	local pointer, key = utils.CreateSignalNode(playerCacheData.ValueRemovedSignals, path)
+
+	local valueRemovedSignal = pointer[key]
 	if valueRemovedSignal then
 		return valueRemovedSignal
 	else
 		valueRemovedSignal = Signal.new()
 		playerCacheData._janitor:Add(valueRemovedSignal, "DisconnectAll")
-		playerCacheData.ValueRemovedSignals[concatedPath] = valueRemovedSignal
+
+		pointer[key] = valueRemovedSignal
 
 		return valueRemovedSignal
 	end
