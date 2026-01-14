@@ -60,11 +60,8 @@ local function start(self: PlayerDataManager): ()
 			return
 		end
 
-		local janitor = Janitor.new()
-		janitor:Add(replica, "Destroy")
-
 		self._cache[player] = {
-			_janitor = janitor,
+			_janitor = Janitor.new(),
 			Replica = replica,
 			ValueChangedSignals = {},
 			ValueInsertedSignals = {},
