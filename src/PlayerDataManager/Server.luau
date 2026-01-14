@@ -6,23 +6,33 @@ local ProfileStore = require(script.Parent.Shared.ProfileStore)
 local Promise = require(script.Parent.Shared.Promise)
 local Replica = require(script.Parent.Shared.Replica)
 local Signal = require(script.Parent.Shared.Signal)
+local Janitor = require(script.Parent.Shared.Janitor)
 
 local TOKEN = Replica.Token("PlayerData")
 
 local playerStore: typeof(ProfileStore.New(...))
 local dataLoaded = Signal.new() :: Signal.Signal<Player>
 
+type ValueChangedSignal = Signal.Signal<any, any>
+type ValueInsertedSignal = Signal.Signal<any, number?>
+type ValueRemovedSignal = Signal.Signal<any, number>
+
+type ValueChangedSignals = { [string]: ValueChangedSignal } | { [string | number]: ValueChangedSignals }
+type ValueInsertedSignals = { [string]: ValueInsertedSignal } | { [string | number]: ValueInsertedSignals }
+type ValueRemovedSignals = { [string]: ValueRemovedSignal } | { [string | number]: ValueRemovedSignals }
+
 type CacheData = {
+	_janitor: Janitor.Janitor,
 	Profile: ProfileStore.Profile<any>,
 	Replica: typeof(Replica.New()),
-	ValueChangedSignals: { [string]: Signal.Signal<any, any>? },
-	ValueInsertedSignals: { [string]: Signal.Signal<any, number?>? },
-	ValueRemovedSignals: { [string]: Signal.Signal<any, number>? },
+	ValueChangedSignals: ValueChangedSignals,
+	ValueInsertedSignals: ValueInsertedSignals,
+	ValueRemovedSignals: ValueRemovedSignals,
 }
 
 local PlayerDataManager = {
-	_dataStoreKey = "PlayerStore",
-	_template = nil,
+	_dataStoreKey = nil :: string?,
+	_template = nil :: { [any]: any },
 	_cache = {} :: { [Player]: CacheData },
 }
 
@@ -32,19 +42,10 @@ local function removeData(self: PlayerDataManager, player: Player): ()
 		return
 	end
 
-	local playerReplica = playerCacheData.Replica
-	if playerReplica then
-		playerReplica:Destroy()
-	end
-
-	for _, signal in pairs(playerCacheData.ValueChangedSignals) do
-		signal:DisconnectAll()
-	end
-	for _, signal in pairs(playerCacheData.ValueInsertedSignals) do
-		signal:DisconnectAll()
-	end
-	for _, signal in pairs(playerCacheData.ValueRemovedSignals) do
-		signal:DisconnectAll()
+	local janitor = playerCacheData._janitor
+	if janitor then
+		janitor:Destroy()
+		playerCacheData._janitor = nil
 	end
 
 	self._cache[player] = nil
@@ -52,7 +53,7 @@ local function removeData(self: PlayerDataManager, player: Player): ()
 	player:Kick("Profile session ended. Please rejoin")
 end
 
-local function getCacheData(self: PlayerDataManager, player: Player): CacheData
+local function getCacheData(self: PlayerDataManager, player: Player): CacheData?
 	if self._cache[player] then
 		return self._cache[player]
 	end
@@ -78,11 +79,16 @@ local function getCacheData(self: PlayerDataManager, player: Player): CacheData
 	if success then
 		return result
 	else
-		error(`Failed to get {player.Name} cache data: {result}`)
+		warn(`Failed to get {player.Name} cache data: {result}`)
+		return nil
 	end
 end
 
 local function start(self: PlayerDataManager): ()
+	if self._dataStoreKey == nil then
+		self._dataStoreKey = "PlayerStore"
+	end
+
 	playerStore = ProfileStore.New(self._dataStoreKey, self._template)
 
 	local function onPlayerAdded(player: Player): ()
@@ -117,7 +123,11 @@ local function start(self: PlayerDataManager): ()
 
 		playerReplica:Replicate()
 
+		local janitor = Janitor.new()
+		janitor:Add(Replica, "Destroy")
+
 		self._cache[player] = {
+			_janitor = janitor,
 			Profile = playerProfile,
 			Replica = playerReplica,
 			ValueChangedSignals = {},
@@ -134,7 +144,10 @@ local function start(self: PlayerDataManager): ()
 
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(function(player)
-		getCacheData(self, player).Profile:EndSession()
+		local playerCacheData = getCacheData(self, player)
+		if playerCacheData ~= nil then
+			playerCacheData.Profile:EndSession()
+		end
 	end)
 
 	if RunService:IsStudio() then
@@ -143,12 +156,19 @@ local function start(self: PlayerDataManager): ()
 
 	game:BindToClose(function()
 		for _, player in pairs(Players:GetPlayers()) do
-			getCacheData(self, player).Profile:EndSession()
+			local playerCacheData = getCacheData(self, player)
+			if playerCacheData ~= nil then
+				playerCacheData.Profile:EndSession()
+			end
 		end
 	end)
 end
 -- Sets the default data structure used when creating a profile.
 function PlayerDataManager.SetTemplate(self: PlayerDataManager, template: { [any]: any }): ()
+	if self._template ~= nil then
+		error("Template is already defined")
+	end
+
 	if type(template) ~= "table" then
 		error("Template must be a table")
 	end
@@ -158,6 +178,9 @@ function PlayerDataManager.SetTemplate(self: PlayerDataManager, template: { [any
 end
 -- Sets the Data Store key used for saving and loading player profile data.
 function PlayerDataManager.SetDataStoreKey(self: PlayerDataManager, key: string): ()
+	if self._dataStoreKey ~= nil then
+		error("Data store key is already defined. You should only call this method once, before SetTemplate call")
+	end
 	self._dataStoreKey = key
 end
 -- Returns the value from a player's profile data at the given path.
@@ -197,7 +220,7 @@ function PlayerDataManager.GetValueChangedSignal(
 	self: PlayerDataManager,
 	player: Player,
 	path: { string | number }
-): Signal.Signal<any, any>
+): ValueChangedSignal
 	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
@@ -206,6 +229,7 @@ function PlayerDataManager.GetValueChangedSignal(
 		return valueChangedSignal
 	else
 		valueChangedSignal = Signal.new()
+		playerCacheData._janitor:Add(valueChangedSignal, "DisconnectAll")
 
 		playerCacheData.ValueChangedSignals[concatedPath] = valueChangedSignal
 
@@ -245,7 +269,7 @@ function PlayerDataManager.GetValueInsertedSignal(
 	self: PlayerDataManager,
 	player: Player,
 	path: { string | number }
-): Signal.Signal<any, number?>
+): ValueInsertedSignal
 	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
@@ -254,6 +278,7 @@ function PlayerDataManager.GetValueInsertedSignal(
 		return valueInsertedSignal
 	else
 		valueInsertedSignal = Signal.new()
+		playerCacheData._janitor:Add(valueInsertedSignal, "DisconnectAll")
 
 		playerCacheData.ValueInsertedSignals[concatedPath] = valueInsertedSignal
 
@@ -287,7 +312,7 @@ function PlayerDataManager.GetValueRemovedSignal(
 	self: PlayerDataManager,
 	player: Player,
 	path: { string | number }
-): Signal.Signal<any, number>
+): ValueRemovedSignal
 	local playerCacheData = getCacheData(self, player)
 	local concatedPath = table.concat(path, "/")
 
@@ -296,6 +321,7 @@ function PlayerDataManager.GetValueRemovedSignal(
 		return valueRemovedSignal
 	else
 		valueRemovedSignal = Signal.new()
+		playerCacheData._janitor:Add(valueRemovedSignal, "DisconnectAll")
 
 		playerCacheData.ValueRemovedSignals[concatedPath] = valueRemovedSignal
 

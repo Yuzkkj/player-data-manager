@@ -3,10 +3,12 @@ local Players = game:GetService("Players")
 local Promise = require(script.Parent.Shared.Promise)
 local Replica = require(script.Parent.Shared.Replica)
 local Signal = require(script.Parent.Shared.Signal)
+local Janitor = require(script.Parent.Shared.Janitor)
 
 local dataLoaded = Signal.new() :: Signal.Signal<Player>
 
 type CacheData = {
+	_janitor: Janitor.Janitor,
 	Replica: typeof(Replica.New()),
 	ValueChangedSignals: { [string]: Signal.Signal<any, any>? },
 	ValueInsertedSignals: { [string]: Signal.Signal<any, number?>? },
@@ -17,7 +19,7 @@ local PlayerDataManager = {
 	_cache = {} :: { [Player]: CacheData },
 }
 
-local function getCacheData(self: PlayerDataManager, player: Player): CacheData
+local function getCacheData(self: PlayerDataManager, player: Player): CacheData?
 	if self._cache[player] then
 		return self._cache[player]
 	end
@@ -43,7 +45,8 @@ local function getCacheData(self: PlayerDataManager, player: Player): CacheData
 	if success then
 		return result
 	else
-		error(`Failed to get {player.Name} cache data: {result}`)
+		warn(`Failed to get {player.Name} cache data: {result}`)
+		return nil
 	end
 end
 
@@ -53,7 +56,12 @@ local function start(self: PlayerDataManager): ()
 		if not player then
 			return
 		end
+
+		local janitor = Janitor.new()
+		janitor:Add(replica, "Destroy")
+
 		self._cache[player] = {
+			_janitor = janitor,
 			Replica = replica,
 			ValueChangedSignals = {},
 			ValueInsertedSignals = {},
@@ -95,14 +103,10 @@ local function start(self: PlayerDataManager): ()
 			return
 		end
 
-		for _, signal in pairs(playerCacheData.ValueChangedSignals) do
-			signal:DisconnectAll()
-		end
-		for _, signal in pairs(playerCacheData.ValueInsertedSignals) do
-			signal:DisconnectAll()
-		end
-		for _, signal in pairs(playerCacheData.ValueRemovedSignals) do
-			signal:DisconnectAll()
+		local janitor = playerCacheData._janitor
+		if janitor then
+			janitor:Destroy()
+			playerCacheData._janitor = nil
 		end
 
 		self._cache[player] = nil
@@ -135,6 +139,7 @@ function PlayerDataManager.GetValueChangedSignal(
 		return valueChangedSignal
 	else
 		valueChangedSignal = Signal.new()
+		playerCacheData._janitor:Add(valueChangedSignal, "DisconnectAll")
 		playerCacheData.ValueChangedSignals[concatedPath] = valueChangedSignal
 
 		playerCacheData.Replica:OnSet(path, function(newValue, oldValue)
@@ -158,6 +163,7 @@ function PlayerDataManager.GetValueInsertedSignal(
 		return valueInsertedSignal
 	else
 		valueInsertedSignal = Signal.new()
+		playerCacheData._janitor:Add(valueInsertedSignal, "DisconnectAll")
 		playerCacheData.ValueInsertedSignals[concatedPath] = valueInsertedSignal
 
 		return valueInsertedSignal
@@ -177,6 +183,7 @@ function PlayerDataManager.GetValueRemovedSignal(
 		return valueRemovedSignal
 	else
 		valueRemovedSignal = Signal.new()
+		playerCacheData._janitor:Add(valueRemovedSignal, "DisconnectAll")
 		playerCacheData.ValueRemovedSignals[concatedPath] = valueRemovedSignal
 
 		return valueRemovedSignal
