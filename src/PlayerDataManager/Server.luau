@@ -195,13 +195,7 @@ function PlayerDataManager.Set(self: PlayerDataManager, player: Player, path: { 
 	if not oldValue then
 		error(`No value found in path "{concatedPath}"`)
 	end
-
-	local pointer = playerCacheData.Profile.Data
-	for i = 1, #path - 1 do
-		pointer = pointer[path[i]]
-	end
-
-	pointer[path[#path]] = value
+	
 	playerCacheData.Replica:Set(path, value)
 
 	local signal: Types.ValueChangedSignal = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
@@ -239,16 +233,6 @@ function PlayerDataManager.Insert(
 	index: number?
 ): ()
 	local playerCacheData = getCacheData(self, player)
-	local pointer = playerCacheData.Profile.Data
-	for _, key in ipairs(path) do
-		pointer = pointer[key]
-	end
-
-	if index then
-		table.insert(pointer, index, value)
-	else
-		table.insert(pointer, value)
-	end
 
 	playerCacheData.Replica:TableInsert(path, value, index or nil)
 
@@ -290,19 +274,8 @@ end
 -- Removes an element from a table at the given path by index.
 function PlayerDataManager.Remove(self: PlayerDataManager, player: Player, path: { string | number }, index: number): ()
 	local playerCacheData = getCacheData(self, player)
-	local pointer = playerCacheData.Profile.Data
-	for _, key in ipairs(path) do
-		pointer = pointer[key]
-	end
 
-	local concatedPath = table.concat(path, "/")
-
-	local valueRemoved = table.remove(pointer, index)
-	if not valueRemoved then
-		error(`No index "{index}" at path "{concatedPath}"`)
-	end
-
-	playerCacheData.Replica:TableRemove(path, index)
+	local removedValue = playerCacheData.Replica:TableRemove(path, index)
 
 	local signalTable = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
 	if signalTable then
@@ -311,7 +284,7 @@ function PlayerDataManager.Remove(self: PlayerDataManager, player: Player, path:
 
 	local signal: Types.ValueRemovedSignal = utils.getSignalNode(playerCacheData.ValueRemovedSignals, path)
 	if signal then
-		signal:Fire(valueRemoved, index)
+		signal:Fire(removedValue, index)
 	end
 end
 -- Returns a Signal that fires when a value is removed from the table at the given path.
