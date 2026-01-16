@@ -28,6 +28,7 @@ local PlayerDataManager = {
 	_dataStoreKey = nil :: string?,
 	_template = nil :: { [any]: any },
 	_cache = {} :: { [Player]: CacheData },
+	_callbacks = {} :: { (player: Player) -> () },
 }
 
 local function removeData(self: PlayerDataManager, player: Player): ()
@@ -137,25 +138,25 @@ local function start(self: PlayerDataManager): ()
 	end
 
 	Players.PlayerAdded:Connect(onPlayerAdded)
-	Players.PlayerRemoving:Connect(function(player)
+	local function onPlayerLeaving(player: Player): ()
+		for _, callback in ipairs(self._callbacks) do
+			task.spawn(callback, player)
+		end
+
 		local playerCacheData = getCacheData(self, player)
 		if playerCacheData ~= nil then
 			playerCacheData.Profile:EndSession()
 		end
-	end)
-
-	if RunService:IsStudio() then
-		return
 	end
+	Players.PlayerRemoving:Connect(onPlayerLeaving)
 
-	game:BindToClose(function()
-		for _, player in pairs(Players:GetPlayers()) do
-			local playerCacheData = getCacheData(self, player)
-			if playerCacheData ~= nil then
-				playerCacheData.Profile:EndSession()
+	if not RunService:IsStudio() then
+		game:BindToClose(function()
+			for _, player in pairs(Players:GetPlayers()) do
+				onPlayerLeaving(player)
 			end
-		end
-	end)
+		end)
+	end
 end
 -- Sets the default data structure used when creating a profile.
 function PlayerDataManager.SetTemplate(self: PlayerDataManager, template: { [any]: any }): ()
@@ -195,7 +196,7 @@ function PlayerDataManager.Set(self: PlayerDataManager, player: Player, path: { 
 	if not oldValue then
 		error(`No value found in path "{concatedPath}"`)
 	end
-	
+
 	playerCacheData.Replica:Set(path, value)
 
 	local signal: Types.ValueChangedSignal = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
@@ -319,6 +320,10 @@ function PlayerDataManager.Increment(
 	local newValue = oldValue + increment
 
 	self:Set(player, path, newValue)
+end
+-- Calls the given function when a player is leaving.
+function PlayerDataManager.OnPlayerLeaving(self: PlayerDataManager, callback: (player: Player) -> ()): ()
+	table.insert(self._callbacks, callback)
 end
 
 type PlayerDataManager = typeof(PlayerDataManager)
