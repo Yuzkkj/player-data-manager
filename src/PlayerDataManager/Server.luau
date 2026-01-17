@@ -190,12 +190,8 @@ end
 -- Sets the value in a player's profile data at the given path.
 function PlayerDataManager.Set(self: PlayerDataManager, player: Player, path: { string | number }, value: any): ()
 	local playerCacheData = getCacheData(self, player)
-	local concatedPath = table.concat(path, "/")
 
 	local oldValue = self:Get(player, path)
-	if not oldValue then
-		error(`No value found in path "{concatedPath}"`)
-	end
 
 	playerCacheData.Replica:Set(path, value)
 
