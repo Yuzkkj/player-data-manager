@@ -196,7 +196,7 @@ function PlayerDataManager.Set(self: PlayerDataManager, player: Player, path: { 
 	playerCacheData.Replica:Set(path, value)
 
 	local signal: Types.ValueChangedSignal = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
-	if signal then
+	if signal and type(signal.Fire) == "function" then
 		signal:Fire(value, oldValue)
 	end
 end
