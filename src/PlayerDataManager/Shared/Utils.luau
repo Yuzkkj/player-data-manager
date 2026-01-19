@@ -12,11 +12,12 @@ function module.getSignalNode<T>(pointer: T, path: { string | number }): T?
 	return pointer
 end
 
-function module.CreateSignalNode<T>(pointer: T, path: {string | number}): (T, string | number)
+function module.CreateSignalNode<T>(pointer: T, path: { string | number }): (T, string | number)
 	for i = 1, #path - 1 do
-		pointer = pointer[path[i]]
-		if not pointer then
+		if pointer[path[i]] == nil then
 			pointer[path[i]] = {}
+		else
+			pointer = pointer[path[i]]
 		end
 	end
 
