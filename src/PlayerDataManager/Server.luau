@@ -7,9 +7,6 @@ local Replica = require(script.Parent.Shared.Replica)
 local Signal = require(script.Parent.Shared.Signal)
 local Janitor = require(script.Parent.Shared.Janitor)
 
-local Types = require(script.Parent.Shared.Types)
-local utils = require(script.Parent.Shared.Utils)
-
 local TOKEN = Replica.Token("PlayerData")
 
 local playerStore: typeof(ProfileStore.New(...))
@@ -19,9 +16,9 @@ type CacheData = {
 	_janitor: Janitor.Janitor,
 	Profile: ProfileStore.Profile<any>,
 	Replica: typeof(Replica.New()),
-	ValueChangedSignals: Types.ValueChangedSignals,
-	ValueInsertedSignals: Types.ValueInsertedSignals,
-	ValueRemovedSignals: Types.ValueRemovedSignals,
+	ValueChangedSignals: { [string]: Signal.Signal<any, any> },
+	ValueInsertedSignals: { [string]: Signal.Signal<any, any?> },
+	ValueRemovedSignals: { [string]: Signal.Signal<any, any> },
 }
 
 local PlayerDataManager = {
@@ -190,14 +187,15 @@ end
 -- Sets the value in a player's profile data at the given path.
 function PlayerDataManager.Set(self: PlayerDataManager, player: Player, path: { string | number }, value: any): ()
 	local playerCacheData = getCacheData(self, player)
+	local concatedPath = table.concat(path, "/")
 
 	local oldValue = self:Get(player, path)
 
 	playerCacheData.Replica:Set(path, value)
 
-	local signal: Types.ValueChangedSignal = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
-	if signal and type(signal.Fire) == "function" then
-		signal:Fire(value, oldValue)
+	local valueChangedSignal = playerCacheData.ValueChangedSignals[concatedPath]
+	if valueChangedSignal then
+		valueChangedSignal:Fire(value, oldValue)
 	end
 end
 -- Returns a Signal that fires when the value at the given path is changed.
@@ -205,20 +203,19 @@ function PlayerDataManager.GetValueChangedSignal(
 	self: PlayerDataManager,
 	player: Player,
 	path: { string | number }
-): Types.ValueChangedSignal
+): Signal.Signal<any, any>
 	local playerCacheData = getCacheData(self, player)
-	local pointer, key = utils.CreateSignalNode(playerCacheData.ValueChangedSignals, path)
+	local concatedPath = table.concat(path, "/")
 
-	local signal = pointer[key]
-	if signal then
-		return signal
+	local valueChangedSignal = playerCacheData.ValueChangedSignals[concatedPath]
+	if valueChangedSignal then
+		return valueChangedSignal
 	else
-		signal = Signal.new()
-		playerCacheData._janitor:Add(signal, "DisconnectAll")
+		valueChangedSignal = Signal.new()
 
-		pointer[key] = signal
+		playerCacheData.ValueChangedSignals[concatedPath] = valueChangedSignal
 
-		return signal
+		return valueChangedSignal
 	end
 end
 -- Inserts the given value into a player's profile table at the given path, and index, if provided.
@@ -233,18 +230,10 @@ function PlayerDataManager.Insert(
 
 	playerCacheData.Replica:TableInsert(path, value, index or nil)
 
-	local signalTable = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
-	if signalTable then
-		if index then
-			table.insert(signalTable, index, false)
-		else
-			table.insert(signalTable, false)
-		end
-	end
-
-	local signal: Types.ValueInsertedSignal = utils.getSignalNode(playerCacheData.ValueInsertedSignals, path)
-	if signal then
-		signal:Fire(value, index or nil)
+	local concatedPath = table.concat(path, "/")
+	local valueInsertedSignal = playerCacheData.ValueInsertedSignals[concatedPath]
+	if valueInsertedSignal then
+		valueInsertedSignal:Fire(value, index or nil)
 	end
 end
 -- Returns a Signal that fires when a value is inserted into the table at the given path.
@@ -252,36 +241,31 @@ function PlayerDataManager.GetValueInsertedSignal(
 	self: PlayerDataManager,
 	player: Player,
 	path: { string | number }
-): Types.ValueInsertedSignal
+): Signal.Signal<any, any?>
 	local playerCacheData = getCacheData(self, player)
-	local pointer, key = utils.CreateSignalNode(playerCacheData.ValueInsertedSignals, path)
+	local concatedPath = table.concat(path, "/")
 
-	local signal = pointer[key]
-	if signal then
-		return signal
+	local valueInsertedSignal = playerCacheData.ValueInsertedSignals[concatedPath]
+	if valueInsertedSignal then
+		return valueInsertedSignal
 	else
-		signal = Signal.new()
-		playerCacheData._janitor:Add(signal, "DisconnectAll")
+		valueInsertedSignal = Signal.new()
 
-		pointer[key] = signal
+		playerCacheData.ValueInsertedSignals[concatedPath] = valueInsertedSignal
 
-		return signal
+		return valueInsertedSignal
 	end
 end
 -- Removes an element from a table at the given path by index.
 function PlayerDataManager.Remove(self: PlayerDataManager, player: Player, path: { string | number }, index: number): ()
 	local playerCacheData = getCacheData(self, player)
+	local concatedPath = table.concat(path, "/")
 
 	local removedValue = playerCacheData.Replica:TableRemove(path, index)
 
-	local signalTable = utils.getSignalNode(playerCacheData.ValueChangedSignals, path)
-	if signalTable then
-		table.remove(signalTable, index)
-	end
-
-	local signal: Types.ValueRemovedSignal = utils.getSignalNode(playerCacheData.ValueRemovedSignals, path)
-	if signal then
-		signal:Fire(removedValue, index)
+	local valueRemovedSignal = playerCacheData.ValueRemovedSignals[concatedPath]
+	if valueRemovedSignal then
+		valueRemovedSignal:Fire(removedValue, index)
 	end
 end
 -- Returns a Signal that fires when a value is removed from the table at the given path.
@@ -289,18 +273,17 @@ function PlayerDataManager.GetValueRemovedSignal(
 	self: PlayerDataManager,
 	player: Player,
 	path: { string | number }
-): Types.ValueRemovedSignal
+): Signal.Signal<any, any>
 	local playerCacheData = getCacheData(self, player)
-	local pointer, key = utils.CreateSignalNode(playerCacheData.ValueRemovedSignals, path)
+	local concatedPath = table.concat(path, "/")
 
-	local valueRemovedSignal = pointer[key]
+	local valueRemovedSignal = playerCacheData.ValueRemovedSignals[concatedPath]
 	if valueRemovedSignal then
 		return valueRemovedSignal
 	else
 		valueRemovedSignal = Signal.new()
-		playerCacheData._janitor:Add(valueRemovedSignal, "DisconnectAll")
 
-		pointer[key] = valueRemovedSignal
+		playerCacheData.ValueRemovedSignals[concatedPath] = valueRemovedSignal
 
 		return valueRemovedSignal
 	end
