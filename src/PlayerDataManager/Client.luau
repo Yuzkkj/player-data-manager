@@ -146,10 +146,6 @@ function PlayerDataManager.GetValueChangedSignal(
 		valueChangedSignal = Signal.new()
 		playerCacheData.ValueChangedSignals[concatedPath] = valueChangedSignal
 
-		playerCacheData.Replica:OnSet(path, function(newValue, oldValue)
-			valueChangedSignal:Fire(newValue, oldValue)
-		end)
-
 		return valueChangedSignal
 	end
 end
