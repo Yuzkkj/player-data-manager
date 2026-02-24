@@ -1,11 +1,11 @@
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
-local ProfileStore = require(script.Parent.Shared.ProfileStore)
-local Promise = require(script.Parent.Shared.Promise)
-local Replica = require(script.Parent.Shared.Replica)
-local Signal = require(script.Parent.Shared.Signal)
-local Janitor = require(script.Parent.Shared.Janitor)
+local ProfileStore = require(script.Parent.Parent:WaitForChild("ProfileStore"))
+local Promise = require(script.Parent.Parent:WaitForChild("Promise"))
+local Replica = require(script.Parent.Parent:WaitForChild("Replica"))
+local Signal = require(script.Parent.Parent:WaitForChild("Signal"))
+local Janitor = require(script.Parent.Parent:WaitForChild("Janitor"))
 
 local TOKEN = Replica.Token("PlayerData")
 
@@ -25,7 +25,8 @@ local PlayerDataManager = {
 	_dataStoreKey = nil :: string?,
 	_template = nil :: { [any]: any },
 	_cache = {} :: { [Player]: CacheData },
-	_callbacks = {} :: { (player: Player) -> () },
+	_beforeReplicateCallbacks = {} :: { (player: Player) -> () },
+	_leavingCallbacks = {} :: { (player: Player) -> () },
 }
 
 local function removeData(self: PlayerDataManager, player: Player): ()
@@ -113,8 +114,6 @@ local function start(self: PlayerDataManager): ()
 			Tags = { Player = player },
 		})
 
-		playerReplica:Replicate()
-
 		local janitor = Janitor.new()
 		janitor:Add(Replica, "Destroy")
 
@@ -127,6 +126,12 @@ local function start(self: PlayerDataManager): ()
 			ValueRemovedSignals = {},
 		}
 
+		for _, callback in ipairs(self._beforeReplicateCallbacks) do
+			task.spawn(callback, player)
+		end
+
+		playerReplica:Replicate()
+
 		dataLoaded:Fire(player)
 	end
 
@@ -136,7 +141,7 @@ local function start(self: PlayerDataManager): ()
 
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	local function onPlayerLeaving(player: Player): ()
-		for _, callback in ipairs(self._callbacks) do
+		for _, callback in ipairs(self._leavingCallbacks) do
 			task.spawn(callback, player)
 		end
 
@@ -300,9 +305,30 @@ function PlayerDataManager.Increment(
 
 	self:Set(player, path, newValue)
 end
+-- Calls the given function before replicating data to player
+function PlayerDataManager.BeforeReplicate(
+	self: PlayerDataManager,
+	callback: (player: Player) -> (),
+	index: number?
+): ()
+	if index then
+		table.insert(self._beforeReplicateCallbacks, index, callback)
+	else
+		table.insert(self._beforeReplicateCallbacks, callback)
+	end
+end
+
 -- Calls the given function when a player is leaving.
-function PlayerDataManager.OnPlayerLeaving(self: PlayerDataManager, callback: (player: Player) -> ()): ()
-	table.insert(self._callbacks, callback)
+function PlayerDataManager.OnPlayerLeaving(
+	self: PlayerDataManager,
+	callback: (player: Player) -> (),
+	index: number?
+): ()
+	if index then
+		table.insert(self._leavingCallbacks, index, callback)
+	else
+		table.insert(self._leavingCallbacks, callback)
+	end
 end
 
 type PlayerDataManager = typeof(PlayerDataManager)

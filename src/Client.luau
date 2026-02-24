@@ -1,9 +1,9 @@
 local Players = game:GetService("Players")
 
-local Promise = require(script.Parent.Shared.Promise)
-local Replica = require(script.Parent.Shared.Replica)
-local Signal = require(script.Parent.Shared.Signal)
-local Janitor = require(script.Parent.Shared.Janitor)
+local Promise = require(script.Parent.Parent:WaitForChild("Promise"))
+local Replica = require(script.Parent.Parent:WaitForChild("Replica"))
+local Signal = require(script.Parent.Parent:WaitForChild("Signal"))
+local Janitor = require(script.Parent.Parent:WaitForChild("Janitor"))
 
 local dataLoaded = Signal.new() :: Signal.Signal<Player>
 
